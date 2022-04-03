@@ -16,6 +16,8 @@ var ErrInstanceNotUnregistered = errors.New("Instance isn't unregistered yet")
 
 var client *dbus.Client
 
+var conn connector
+
 // maybe mutex the globals?
 var dataStore *store.Storage
 
@@ -24,12 +26,14 @@ type connector struct {
 	t chan time.Time
 }
 
-func (ch connector) Message(token, msg, id string) {
+func (ch connector) Message(token string, msg []byte, id string) {
 	if ch.t != nil {
 		ch.t <- time.Now()
 	}
 	instance := getInstance(token)
-	ch.c.Message(instance, msg, id)
+	if instance != nil {
+		ch.c.Message(*instance, msg, id)
+	}
 }
 
 func (ch connector) NewEndpoint(token, endpoint string) {
@@ -38,18 +42,22 @@ func (ch connector) NewEndpoint(token, endpoint string) {
 	}
 
 	instance := getInstance(token)
-	ch.c.NewEndpoint(instance, endpoint)
+	if instance != nil {
+		ch.c.NewEndpoint(*instance, endpoint)
+	}
 }
 
 func (ch connector) Unregistered(token string) {
 	if ch.t != nil {
 		ch.t <- time.Now()
 	}
-	// TODO instance might be empty based on spec idk what to do then with multi instance
 	instance := getInstance(token)
-	// FIXME how should I handle this
-	removeToken(token) //nolint:errcheck
-	ch.c.Unregistered(instance)
+	if instance == nil {
+		return
+	}
+
+	removeInstance(*instance) //nolint:errcheck
+	ch.c.Unregistered(*instance)
 }
 
 // Initializes the bus and object
@@ -67,7 +75,6 @@ func Initialize(name string, handler dbus.ConnectorHandler) error {
 	}
 
 	// if the handler passed in is already of type connector (from InitializeAndCheck), don't wrap it in another connector. If its not then wrap with connector
-	var conn connector
 	var ok bool
 	if conn, ok = handler.(connector); !ok {
 		conn = connector{c: handler}
@@ -127,23 +134,39 @@ func Register(instance string) (registerStatus definitions.RegisterStatus, regis
 		return
 	}
 
-	if len(getToken(instance)) == 0 {
+	if getToken(instance) == nil {
 		err = saveNewToken(instance)
 		if err != nil {
 			return
 		}
 	}
-	status, reason := client.PickDistributor(GetDistributor()).Register(dataStore.AppName, getToken(instance))
+	status, reason := client.PickDistributor(GetDistributor()).Register(dataStore.AppName, *getToken(instance))
 	if status == definitions.RegisterStatusFailed || status == definitions.RegisterStatusRefused {
-		err = removeToken(instance)
+		err = removeInstance(instance)
 	}
 	return status, reason, err
 }
 
 // TryUnregister attempts unregister, results are returned through callback
 // any error returned is before unregister requested from dbus
+// Use with caution. Using Unregister is preferred.
 func TryUnregister(instance string) error {
-	return client.PickDistributor(GetDistributor()).Unregister(getToken(instance))
+	token := getToken(instance)
+	if token != nil {
+		return client.PickDistributor(GetDistributor()).Unregister(*token)
+	}
+	return nil
+}
+
+// Unregister is like TryUnregister but it forces unregister regardless of whether the distributor is working
+func Unregister(instance string) error {
+	err := TryUnregister(instance)
+	if err == nil {
+		if token := getToken(instance); token != nil {
+			conn.Unregistered(*token)
+		}
+	}
+	return err
 }
 
 // Distributor things
@@ -191,12 +214,12 @@ func RemoveDistributor() error {
 // Token things
 
 // getToken returns token for instance or empty string if instance doesn't exist
-func getToken(instance string) string {
+func getToken(instance string) *string {
 	a, ok := dataStore.Instances[instance]
 	if !ok {
-		return ""
+		return nil
 	}
-	return a.Token
+	return &a.Token
 }
 
 func saveNewToken(instance string) error {
@@ -208,20 +231,23 @@ func saveNewToken(instance string) error {
 	return dataStore.Commit()
 }
 
-func removeToken(instance string) error {
+func removeInstance(instance string) error {
 	delete(dataStore.Instances, instance)
+	if len(dataStore.Instances) == 0 { // remove preferred distributor if it's not needed anymore
+		dataStore.Distributor = ""
+	}
 	return dataStore.Commit()
 }
 
 // getInstance returns instance from token (for internal use) or empty string if not found
-func getInstance(token string) string {
+func getInstance(token string) *string {
 	for i, j := range dataStore.Instances {
 		if token == j.Token {
-			return i
+			return &i
 		}
 	}
 
-	return ""
+	return nil
 }
 
 // utils

@@ -95,17 +95,21 @@ func UPInitialize(
 		newEndpoint:  endpoint,
 		unregistered: unregistered,
 	}
+	go C.EndpointCallback(endpoint, C.CString("aaa"), C.CString("bbb"))
 	err := api.Initialize(C.GoString(name), connector)
 	return err == nil
 }
 
 //export UPGetDistributors
-func UPGetDistributors() (**C.char, C.size_t) {
+func UPGetDistributors(ans ***C.char) C.size_t {
 	ret, err := api.GetDistributors()
 	if err != nil {
 		ret = []string{}
 	}
-	return cStringArray(ret)
+	arr, length := cStringArray(ret)
+	*ans = arr
+	return length
+
 }
 
 //CHECKTHIS: TODO

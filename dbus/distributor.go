@@ -31,6 +31,9 @@ func (d *Distributor) Register(name, token string) (definitions.RegisterStatus, 
 }
 
 func (d *Distributor) Unregister(token string) (err error) {
-	err = d.object.Call(definitions.DistributorInterface+".Unregister", dbus.FlagNoReplyExpected, token).Err
-	return
+	result := d.object.Call(definitions.DistributorInterface+".Unregister", dbus.FlagNoReplyExpected, token)
+	if result == nil {
+		return nil // this should be some sort of error
+	}
+	return result.Err
 }

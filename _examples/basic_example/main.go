@@ -2,6 +2,9 @@ package main
 
 import (
 	"fmt"
+	"log"
+	"net/http"
+	"os"
 	"strings"
 
 	"github.com/gen2brain/beeep"
@@ -33,6 +36,7 @@ func (n NotificationHandler) NewEndpoint(instance, endpoint string) {
 	// the endpoint should be sent to whatever server your app is using
 	Endpoint = endpoint
 	fmt.Println("New endpoint received", Endpoint)
+	http.Post(endpoint, "", strings.NewReader("body-title"))
 }
 
 func (n NotificationHandler) Unregistered(instance string) {
@@ -43,6 +47,17 @@ func (n NotificationHandler) Unregistered(instance string) {
 func main() {
 	connector := NotificationHandler{}
 	up.InitializeAndCheck("cc.malhotra.karmanyaah.testapp.golibrary", connector)
+
+	if len(os.Args) >= 2 {
+		switch os.Args[1] {
+		case "unregister":
+			err := up.Unregister("")
+			if err != nil {
+				log.Fatal(err)
+			}
+			os.Exit(0)
+		}
+	}
 
 	if len(up.GetDistributor()) == 0 { // not picked distributor yet
 		pickDist()
@@ -73,6 +88,7 @@ func pickDist() {
 	if err != nil {
 		panic(err)
 	}
+	fmt.Println(dist)
 
 	var distributor string
 

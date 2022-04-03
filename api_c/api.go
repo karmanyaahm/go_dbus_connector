@@ -49,8 +49,9 @@ type Connector struct {
 	unregistered *C.unregisteredCallback
 }
 
-func (c Connector) Message(a, b, d string) {
-	go C.MessageCallback(c.message, C.CString(a), C.CString(b), C.CString(d))
+func (c Connector) Message(a string, b []byte, d string) {
+	//todo handle the case where `b` the message contains a null byte, because cstring would not work then
+	go C.MessageCallback(c.message, C.CString(a), C.CString(string(b)), C.CString(d))
 }
 
 func (c Connector) NewEndpoint(a, b string) {
